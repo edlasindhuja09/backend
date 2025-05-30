@@ -21,7 +21,7 @@ dotenv.config();
 
 const app = express();
 const corsOptions = {
-  origin: 'http://localhost:3000', // Your frontend origin
+  origin: 'https://frontend-ruby-delta-83.vercel.app', // Your frontend origin
   credentials: true, // Allow credentials
   optionsSuccessStatus: 200 // For legacy browser support
 };
