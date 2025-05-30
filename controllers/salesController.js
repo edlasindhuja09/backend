@@ -1,7 +1,21 @@
 const SalesUser = require('../models/SalesUser');
 const csv = require('csv-parser');
 const fs = require('fs');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
+const path = require('path');
+
+// Configure folders
+const generatedFolder = path.join(__dirname, '..', 'generated-logins');
+if (!fs.existsSync(generatedFolder)) {
+  fs.mkdirSync(generatedFolder, { recursive: true });
+}
+
+// Enhanced password generator
+function generateRandomPassword() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  return Array.from({length: 10}, () => 
+    chars.charAt(Math.floor(Math.random() * chars.length))).join('');
+}
 
 exports.uploadSalesCSV = async (req, res) => {
   if (!req.file) {
@@ -46,8 +60,8 @@ exports.uploadSalesCSV = async (req, res) => {
     // Process users with password generation
     const usersWithPasswords = await Promise.all(
       results.map(async (user) => {
-        const rawPassword = Math.random().toString(36).slice(-8);
-        const hashedPassword = await bcrypt.hash(rawPassword, 10);
+        const rawPassword = generateRandomPassword();
+        const hashedPassword = await bcrypt.hash(rawPassword, 12);
         return {
           ...user,
           userType: 'sales',
@@ -62,6 +76,7 @@ exports.uploadSalesCSV = async (req, res) => {
     let insertedCount = 0;
     const insertedUsers = [];
     const duplicateEmails = [];
+    const loginCredentials = [];
 
     for (const user of usersWithPasswords) {
       try {
@@ -74,6 +89,14 @@ exports.uploadSalesCSV = async (req, res) => {
         const newUser = await SalesUser.create(user);
         insertedUsers.push(newUser);
         insertedCount++;
+        
+        loginCredentials.push({
+          name: user.name,
+          email: user.email,
+          phoneNo: user.phoneNo,
+          userType: user.userType,
+          password: user.rawPassword
+        });
       } catch (err) {
         if (err.code === 11000) { // Duplicate key error
           duplicateEmails.push(user.email);
@@ -85,6 +108,19 @@ exports.uploadSalesCSV = async (req, res) => {
           });
         }
       }
+    }
+
+    // Generate CSV file with credentials
+    if (loginCredentials.length > 0) {
+      const fields = [
+        'name', 'email', 'phoneNo', 'password'
+      ];
+      const json2csvParser = new Parser({ fields });
+      const csv = json2csvParser.parse(loginCredentials);
+      
+      const filename = `sales_credentials_${Date.now()}.csv`;
+      const filePath = path.join(generatedFolder, filename);
+      fs.writeFileSync(filePath, csv);
     }
 
     fs.unlinkSync(req.file.path);
@@ -107,6 +143,10 @@ exports.uploadSalesCSV = async (req, res) => {
 
     if (errors.length > 0) {
       response.errorDetails = errors;
+    }
+
+    if (loginCredentials.length > 0) {
+      response.downloadUrl = `/api/download-logins/${filename}`;
     }
 
     return res.status(200).json(response);

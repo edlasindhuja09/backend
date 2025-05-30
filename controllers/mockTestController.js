@@ -1,4 +1,4 @@
-const MockTest = require("../models/mockTest");
+const MockTest = require("../models/MockTest");
 
 // Get all mock tests
 exports.getAllMockTests = async (req, res) => {

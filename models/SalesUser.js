@@ -25,7 +25,7 @@ const SalesUserSchema = new mongoose.Schema({
   },
   rawPassword: {
     type: String,
-   
+    required: true
   },
   password: {
     type: String,
@@ -38,7 +38,7 @@ const SalesUserSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
- 
+  collection: 'salesusers'
 });
 
 // Add index for better query performance

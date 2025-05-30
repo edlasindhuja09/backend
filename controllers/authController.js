@@ -1,4 +1,4 @@
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const SalesUser = require("../models/SalesUser");
@@ -86,15 +86,31 @@ exports.loginUser = async (req, res) => {
 // Registration controller
 exports.registerUser = async (req, res) => {
   try {
-    const { userType, name, email, password, ...otherData } = req.body;
+    const {
+      userType,
+      name,
+      email,
+      password,
+      confirmPassword,
+      phoneNumber,
+      schoolName,
+      schoolId,
+      address
+    } = req.body;
 
-    // Validate user type
     const allowedUserTypes = ["student", "sales", "admin", "school"];
     if (!allowedUserTypes.includes(userType)) {
       return res.status(400).json({ message: "Invalid user type" });
     }
 
-    // Check if user exists
+    if (!name || !email || !password || !confirmPassword) {
+      return res.status(400).json({ message: "All required fields must be filled" });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
+
     let existingUser;
     if (userType === "student") {
       existingUser = await Student.findOne({ email });
@@ -108,27 +124,33 @@ exports.registerUser = async (req, res) => {
       return res.status(400).json({ message: "Email already registered" });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create new user based on type
-    let newUser;
     const userData = {
+      userType,
       name,
       email,
       password: hashedPassword,
-      userType,
-      status: "active",
-      ...otherData
+      status: "active"
     };
 
-    // For non-student users, ensure rollNo and schoolId are null
-    if (userType !== 'student') {
-      userData.rollNo = null;
-      userData.schoolId = null;
+    if (userType === "admin") {
+      if (!phoneNumber) {
+        return res.status(400).json({ message: "Phone number is required for admin" });
+      }
+      userData.phoneNumber = phoneNumber;
     }
 
+    if (userType === "school") {
+      if (!schoolName || !schoolId || !address) {
+        return res.status(400).json({ message: "All school details are required" });
+      }
+      userData.schoolName = schoolName;
+      userData.schoolId = schoolId;
+      userData.address = address;
+    }
+
+    let newUser;
     switch (userType) {
       case "student":
         newUser = new Student(userData);
@@ -142,7 +164,6 @@ exports.registerUser = async (req, res) => {
 
     await newUser.save();
 
-    // Generate token
     const token = generateToken(newUser);
 
     res.status(201).json({

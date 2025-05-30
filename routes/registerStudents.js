@@ -1,34 +1,32 @@
-const express = require("express");
+const express = require("express"); 
 const router = express.Router();
 const multer = require("multer");
 const csvParser = require("csv-parser");
 const fs = require("fs");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const Student = require("../models/Student");
 const SalesUser = require("../models/SalesUser");
-const User = require("../models/User");
 const { Parser } = require("json2csv");
 const path = require("path");
 
-// Configure upload and generated folders
+// Configure folders
 const generatedFolder = path.join(__dirname, '..', 'generated-logins');
 if (!fs.existsSync(generatedFolder)) {
   fs.mkdirSync(generatedFolder, { recursive: true });
 }
 
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ 
+  dest: "uploads/",
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
-// Improved password generator
-function generateRandomPassword(length = 10) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*";
-  let pass = "";
-  for (let i = 0; i < length; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return pass;
+// Enhanced password generator
+function generateRandomPassword() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  return Array.from({length: 10}, () => 
+    chars.charAt(Math.floor(Math.random() * chars.length))).join('');
 }
 
-// Enhanced student registration that allows duplicates
 router.post("/register-students", upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
@@ -44,117 +42,172 @@ router.post("/register-students", upload.single("file"), async (req, res) => {
         .on("error", reject);
     });
 
-    const studentsToInsert = [];
+    const processedStudents = [];
     const loginCredentials = [];
-    const warnings = [];
+    let successCount = 0;
 
-    // Process each student
+    // Process all students without duplicate checking
     for (const [index, student] of results.entries()) {
       try {
-        const name = student.name?.trim() || "";
-        const email = student.email?.trim().toLowerCase() || "";
-        const rollNo = student.rollNo?.toString().trim() || ""; // Ensure rollNo is string
-        const schoolName = student.schoolName?.trim() || "";
-        const studentClass = student.class?.toString().trim() || student.grade?.toString().trim() || ""; // Handle both class and grade
-        const olympiadExam = student.olympiadExam?.trim() || "";
-        const feeStatus = student.feeStatus?.trim() || "Unpaid";
-        const userType = student.userType?.trim() || "student";
+        // Extract and validate fields
+        const name = student.name?.trim();
+        const rollNo = student.rollNo?.toString().trim();
+        const schoolName = student.schoolName?.trim();
+        const studentClass = student.class?.toString().trim() || student.grade?.toString().trim();
+        const olympiadExam = student.olympiadExam?.trim();
+        const email = student.email?.trim().toLowerCase();
         const schoolId = student.schoolId?.toString().trim() || req.body.schoolId?.toString().trim() || "unassigned";
+        const userType = student.userType?.trim().toLowerCase() || "student";
 
-        // Generate email if not provided
-        const finalEmail = email || `${name.replace(/\s+/g, '').toLowerCase()}${rollNo}@${schoolName.replace(/\s+/g, '').toLowerCase()}.com`;
+        // Validate required fields (but allow registration even if missing)
+        const missingFields = [];
+        if (!name) missingFields.push("name");
+        if (userType === "student" && !rollNo) missingFields.push("rollNo");
+        if (userType === "student" && !schoolName) missingFields.push("schoolName");
+        if (userType === "student" && !studentClass) missingFields.push("class");
+        if (userType === "student" && !olympiadExam) missingFields.push("olympiadExam");
 
-        // Validate required fields
-        if (!name || !rollNo || !schoolName || !studentClass || !olympiadExam) {
-          warnings.push(`Row ${index + 1}: Missing required fields - using default values where possible`);
-        }
+        // Generate final email
+        const finalEmail = email || `${name?.replace(/\s+/g, '').toLowerCase() || 'user'}${rollNo || Date.now()}@${schoolName?.replace(/\s+/g, '').toLowerCase() || 'domain'}.com`;
 
-        // Generate secure credentials
+        // Generate credentials
         const rawPassword = generateRandomPassword();
         const hashedPassword = await bcrypt.hash(rawPassword, 12);
 
-        const studentData = {
-          name,
-          email: finalEmail,
-          rollNo,
-          schoolName,
-          class: studentClass,
-          olympiadExam,
-          schoolId,
-          password: hashedPassword,
-          rawPassword,
-          userType,
-          feeStatus,
-          status: "active",
-          createdAt: new Date()
-        };
+        // Create document based on user type
+        let result;
+        if (userType === "sales") {
+          const salesDoc = {
+            name: name || `Sales User ${index + 1}`,
+            email: finalEmail,
+            phoneNo: student.phoneNo?.toString().trim() || "0000000000",
+            userType: "sales",
+            password: hashedPassword,
+            rawPassword,
+            status: "active",
+            createdAt: new Date()
+          };
+          result = await SalesUser.collection.insertOne(salesDoc);
+          
+          loginCredentials.push({
+            name: salesDoc.name,
+            email: salesDoc.email,
+            phoneNo: salesDoc.phoneNo,
+            userType: salesDoc.userType,
+            password: rawPassword
+          });
+        } else {
+          // Default to student
+          const studentDoc = {
+            name: name || `Student ${index + 1}`,
+            email: finalEmail,
+            rollNo: rollNo || `${index + 1}`,
+            schoolName: schoolName || "Unknown School",
+            class: studentClass || "1",
+            olympiadExam: olympiadExam || "General",
+            schoolId,
+            password: hashedPassword,
+            rawPassword,
+            userType: "student",
+            feeStatus: student.feeStatus?.trim() || "Unpaid",
+            status: "active",
+            createdAt: new Date(),
+            missingFields: missingFields.length > 0 ? missingFields : undefined
+          };
+          result = await Student.collection.insertOne(studentDoc);
+          
+          loginCredentials.push({
+            name: studentDoc.name,
+            email: studentDoc.email,
+            rollNo: studentDoc.rollNo,
+            schoolName: studentDoc.schoolName,
+            class: studentDoc.class,
+            olympiadExam: studentDoc.olympiadExam,
+            userType: studentDoc.userType,
+            password: rawPassword,
+            missingFields: studentDoc.missingFields
+          });
+        }
 
-        studentsToInsert.push(studentData);
-        loginCredentials.push({
-          ...studentData,
-          password: rawPassword
+        successCount++;
+        processedStudents.push({
+          row: index + 1,
+          status: "success",
+          data: userType === "sales" ? {
+            name: name,
+            email: finalEmail,
+            phoneNo: student.phoneNo,
+            userType: "sales"
+          } : {
+            name: name,
+            email: finalEmail,
+            rollNo: rollNo,
+            schoolName: schoolName,
+            class: studentClass,
+            olympiadExam: olympiadExam,
+            userType: "student"
+          },
+          userId: result.insertedId
         });
+
       } catch (err) {
-        warnings.push(`Row ${index + 1}: ${err.message}`);
-        console.log(`Warning for student: ${err.message}`);
+        processedStudents.push({
+          row: index + 1,
+          status: "failed",
+          error: err.message,
+          data: student
+        });
       }
     }
 
-    if (studentsToInsert.length === 0) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({ 
-        error: "No valid students found in file",
-        details: warnings 
-      });
+    // Generate CSV with appropriate fields based on user type
+    let fields, csv;
+    if (loginCredentials.some(cred => cred.userType === "sales")) {
+      // Mixed or sales users
+      fields = [
+        'name', 'email', 'userType', 'password',
+        {label: 'Phone', value: 'phoneNo', default: 'N/A'},
+        {label: 'Roll No', value: 'rollNo', default: 'N/A'},
+        {label: 'School', value: 'schoolName', default: 'N/A'},
+        {label: 'Class', value: 'class', default: 'N/A'},
+        {label: 'Olympiad', value: 'olympiadExam', default: 'N/A'}
+      ];
+    } else {
+      // Only students
+      fields = [
+        'name', 'email', 'rollNo', 'schoolName', 
+        'class', 'olympiadExam', 'userType', 'password'
+      ];
     }
 
-    // Insert all students without duplicate checking
-    let insertedStudents = [];
-    try {
-      // Using insertMany with ordered:false to continue on errors
-      insertedStudents = await Student.insertMany(studentsToInsert, { 
-        ordered: false,
-        rawResult: true 
-      });
-    } catch (err) {
-      // Even if there are errors, some students may have been inserted
-      if (err.result) {
-        insertedStudents = err.result;
-      } else {
-        console.error("Bulk insert error:", err);
-        throw err;
-      }
-    }
-
-    // Generate credentials file for all attempted inserts
-    const fields = ['name', 'email', 'rollNo', 'schoolName', 'class', 'olympiadExam', 'password', 'userType', 'feeStatus'];
-    const opts = { fields };
-    const csv = new Parser(opts).parse(loginCredentials);
+    const json2csvParser = new Parser({ fields });
+    csv = json2csvParser.parse(loginCredentials);
     
-    const filename = `student_credentials_${Date.now()}.csv`;
+    const filename = `user_credentials_${Date.now()}.csv`;
     const filePath = path.join(generatedFolder, filename);
     fs.writeFileSync(filePath, csv);
 
     fs.unlinkSync(req.file.path);
-    
-    return res.status(200).json({
-      message: `Processed ${results.length} students, ${insertedStudents.insertedCount} inserted successfully`,
-      totalProcessed: results.length,
-      insertedCount: insertedStudents.insertedCount || 0,
-      warningCount: warnings.length,
-      warnings: warnings.length > 0 ? warnings : undefined,
-      downloadUrl: `/api/download-logins/${filename}`
+
+    return res.json({
+      message: `Processed ${results.length} users`,
+      total: results.length,
+      successCount,
+      errorCount: results.length - successCount,
+      downloadUrl: `/api/download-logins/${filename}`,
+      processedStudents
     });
 
   } catch (err) {
-    fs.unlinkSync(req.file.path);
+    if (req.file?.path) fs.unlinkSync(req.file.path);
     console.error("Registration error:", err);
     return res.status(500).json({
-      error: "Failed to process students",
-      details: err.message,
+      error: "Failed to process users",
+      details: err.message
     });
   }
 });
+
 router.get("/generate-csv", async (req, res) => {
   try {
     const { usertype, schoolname } = req.query;
@@ -166,17 +219,17 @@ router.get("/generate-csv", async (req, res) => {
     let data, fields;
 
     if (usertype === 'sales') {
-      // Handle sales users export
       data = await SalesUser.find(query).lean();
       fields = [
         'name',
         'email',
-        'phone',
-        'region',
+        'phoneNo',
+        'userType',
+        'rawPassword',
+        'status',
         'createdAt'
       ];
     } else {
-      // Handle student users export
       data = await Student.find(query).lean();
       fields = [
         'name',
@@ -185,6 +238,8 @@ router.get("/generate-csv", async (req, res) => {
         'schoolName',
         'class',
         'olympiadExam',
+        'userType',
+        'rawPassword',
         'feeStatus',
         'createdAt'
       ];
@@ -197,7 +252,6 @@ router.get("/generate-csv", async (req, res) => {
     const json2csvParser = new Parser({ fields });
     const csv = json2csvParser.parse(data);
 
-    // Set headers for file download
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=${usertype || 'users'}_export_${Date.now()}.csv`);
 
@@ -208,6 +262,7 @@ router.get("/generate-csv", async (req, res) => {
     res.status(500).send("Failed to generate export");
   }
 });
+
 // List generated CSV files
 router.get("/download-logins/list", (req, res) => {
   fs.readdir(generatedFolder, (err, files) => {

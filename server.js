@@ -51,15 +51,36 @@ app.use('/api', salesRoutes); // ✅ added
 app.use('/api/tasks', taskRoutes);
 
 
-// Connect to MongoDB
-mongoose.connect('mongodb://localhost:27017/olympiad', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB connected successfully'))
-.catch((err) => console.error('MongoDB connection error:', err));
 
-// Start server
-app.listen(5000, () => {
-  console.log('Server running on port 5000');
+
+mongoose.connect(process.env.MONGO_URI)
+  .then(async () => {
+    console.log('MongoDB connected successfully');
+
+    const Student = require('./models/Student');
+
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const studentCollectionExists = collections.some(col => col.name === 'students');
+
+    if (studentCollectionExists) {
+      try {
+        await Student.collection.dropIndex("rollNo_1_schoolId_1");
+        console.log("Old unique index dropped successfully");
+      } catch (err) {
+        if (err.codeName === "IndexNotFound") {
+          console.log("Index does not exist, nothing to drop.");
+        } else {
+          console.error("Error dropping index:", err.message);
+        }
+      }
+    } else {
+      console.log("Collection 'students' does not exist, skipping index drop.");
+    }
+  })
+  .catch((err) => console.error('MongoDB connection error:', err));
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
