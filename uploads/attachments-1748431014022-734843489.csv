@@ -1,0 +1,4 @@
+name,email,rollNo,schoolName,class,olympiadExam,feeStatus,schoolId
+dpstudent,student@gmail.com,1,Delhi Public school,5,International Mathematics Olympiad,Paid,123
+dpstudentone,student1@gmail.com,2,Delhi public school,5,International Mathematics Olympiad,Paid,123
+dpstudenttwo,student2@gmail.com,3,Delhi public school,5,International Mathematics Olympiad,Paid,123

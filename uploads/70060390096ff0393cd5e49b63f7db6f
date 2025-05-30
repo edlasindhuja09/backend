@@ -1,0 +1,4 @@
+name,email,rollNo,schoolName,class,olympiadExam,feeStatus
+student,student@gmail.com,1,Delhi Public school,5,Science olympiad,Paid
+student1,student1@gmail.com,2,Delhi public school,5,Science Olympiad,Paid
+student2,student2@gmail.com,3,Delhi public school,5,Science olympiad,Paid
