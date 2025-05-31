@@ -21,7 +21,7 @@ dotenv.config();
 
 const app = express();
 const corsOptions = {
-  origin: 'https://frontend-eta-two-66.vercel.app', // Your frontend origin
+  origin: 'https://frontend-nine-theta-10.vercel.app', // Your frontend origin
   credentials: true, // Allow credentials
   optionsSuccessStatus: 200 // For legacy browser support
 };
