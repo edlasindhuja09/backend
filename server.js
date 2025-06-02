@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
@@ -11,7 +10,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const examRoutes = require("./routes/examRoutes");
 const mockTestRoutes = require("./routes/mockTestRoutes");
 const registerStudentsRoute = require('./routes/registerStudents'); 
-const salesRoutes = require('./routes/sales'); // ✅ added
+const salesRoutes = require('./routes/sales');
 const taskRoutes = require('./routes/tasks');
 const studentRoutes = require('./routes/studentRoutes');
 const filterRoutes = require('./routes/get-all-filters');
@@ -20,24 +19,41 @@ const exportRoute = require('./routes/export');
 dotenv.config();
 
 const app = express();
+
+// CORS configuration to allow multiple origins
+const allowedOrigins = [
+  'https://frontend-nine-theta-10.vercel.app',
+  'http://localhost:3000'
+];
+
 const corsOptions = {
-  origin: 'https://frontend-nine-theta-10.vercel.app', // Your frontend origin
-  credentials: true, // Allow credentials
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g., mobile apps or curl) or from allowed origins
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // Allow credentials (cookies, auth headers)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Allow necessary methods
+  allowedHeaders: ['Content-Type', 'Authorization'], // Allow necessary headers
   optionsSuccessStatus: 200 // For legacy browser support
 };
+
 app.use(express.json());
 app.use(cors(corsOptions));
+
 // Ensure uploads directory exists
-const uploadDir = path.join(__dirname, 'uploads');
+const uploadDir = path.join(__dirname, 'Uploads');
 if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-
-
 // Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 app.use('/api/download-logins', express.static(path.join(__dirname, 'generated-logins')));
+
 // Mount all routes
 app.use(exportRoute);
 app.use(filterRoutes);
@@ -47,11 +63,8 @@ app.use('/api/exams', examRoutes);
 app.use('/api/mocktests', mockTestRoutes);
 app.use('/api', studentRoutes);
 app.use('/api', registerStudentsRoute);
-app.use('/api', salesRoutes); // ✅ added
+app.use('/api', salesRoutes);
 app.use('/api/tasks', taskRoutes);
-
-
-
 
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
